@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="自動運転">
+<meta name="theme-color" content="#111418">
+<title>自動運転モニター</title>
+<style>
+:root{
+  --bg:#f5f6f8; --card:#ffffff; --fg:#14171c; --sub:#5d6573; --line:#e3e6eb;
+  --ok:#1f9d55; --ok-bg:#e7f6ee; --warn:#b7791f; --warn-bg:#fdf3e1;
+  --err:#d1342f; --err-bg:#fdeaea; --info:#3b6fd4;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:#0f1115; --card:#181b21; --fg:#e9ecf1; --sub:#9aa3b2; --line:#2a2f38;
+    --ok:#3ccf7d; --ok-bg:#12291d; --warn:#f0b54a; --warn-bg:#2d2412;
+    --err:#ff6b66; --err-bg:#331616; --info:#7aa2ff;
+  }
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);
+  font:15px/1.5 -apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto Sans JP",sans-serif;
+  padding:calc(env(safe-area-inset-top) + 12px) 16px calc(env(safe-area-inset-bottom) + 24px)}
+h1{font-size:17px;margin:0 0 10px;display:flex;justify-content:space-between;align-items:center}
+h1 button{font:inherit;font-size:13px;border:1px solid var(--line);background:var(--card);
+  color:var(--fg);border-radius:8px;padding:4px 10px}
+.banner{border-radius:14px;padding:14px 16px;margin-bottom:12px}
+.banner .big{font-size:20px;font-weight:700}
+.banner .small{font-size:13px;opacity:.9;margin-top:2px}
+.b-ok{background:var(--ok-bg);color:var(--ok)}
+.b-warn{background:var(--warn-bg);color:var(--warn)}
+.b-err{background:var(--err-bg);color:var(--err)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;
+  padding:12px 14px;margin-bottom:12px}
+.card h2{font-size:13px;color:var(--sub);margin:0 0 8px;font-weight:600}
+.kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px}
+.kpi{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px;text-align:center}
+.kpi .v{font-size:22px;font-weight:700}
+.kpi .l{font-size:11px;color:var(--sub)}
+.row{display:flex;gap:10px;padding:7px 0;border-top:1px solid var(--line);align-items:baseline}
+.row:first-of-type{border-top:0}
+.row .t{color:var(--sub);font-size:12px;min-width:74px;font-variant-numeric:tabular-nums}
+.row .m{flex:1;min-width:0;word-break:break-all}
+.row .n{font-variant-numeric:tabular-nums;font-weight:600;white-space:nowrap}
+a{color:inherit}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;vertical-align:1px}
+.d-ok{background:var(--ok)} .d-warn{background:var(--warn)} .d-err{background:var(--err)} .d-info{background:var(--info)}
+.alert{padding:8px 0;border-top:1px solid var(--line)} .alert:first-of-type{border-top:0}
+.alert .rem{font-size:12px;color:var(--sub);margin-top:2px}
+.muted{color:var(--sub);font-size:13px}
+input{width:100%;font:inherit;padding:10px;border-radius:10px;border:1px solid var(--line);
+  background:var(--card);color:var(--fg)}
+.btn{display:block;width:100%;margin-top:8px;font:inherit;padding:10px;border-radius:10px;
+  border:0;background:var(--info);color:#fff;font-weight:600}
+</style>
+</head>
+<body>
+<h1>Bird-Balance 自動運転 <button id="reload" type="button">更新</button></h1>
+<div id="app"><div class="muted">読み込み中…</div></div>
+
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+function getGistId(){
+  const h = location.hash.replace(/^#/, "").trim();
+  if (h) { try{ localStorage.setItem("bb_gist", h); }catch(e){} return h; }
+  try{ return localStorage.getItem("bb_gist") || ""; }catch(e){ return ""; }
+}
+
+async function load(){
+  const params = new URLSearchParams(location.search);
+  if (params.has("demo")) return (await fetch("sample.json", {cache:"no-store"})).json();
+  const id = getGistId();
+  if (!id) return null;
+  const r = await fetch(`https://api.github.com/gists/${id}`, {cache:"no-store"});
+  if (!r.ok) throw new Error(`GitHub 応答 ${r.status}`);
+  const g = await r.json();
+  const f = g.files["status.json"];
+  if (f.truncated) return (await fetch(f.raw_url, {cache:"no-store"})).json();
+  return JSON.parse(f.content);
+}
+
+function ago(min){
+  if (min < 1) return "たった今";
+  if (min < 60) return `${Math.round(min)}分前`;
+  if (min < 48*60) return `${Math.floor(min/60)}時間${Math.round(min%60)}分前`;
+  return `${Math.floor(min/1440)}日前`;
+}
+const hm = iso => iso ? iso.slice(5,16).replace("T"," ").replace("-","/") : "";
+const n = v => v == null ? "–" : Number(v).toLocaleString("ja-JP");
+
+function judge(s){
+  const gen = new Date(s.generated_at);
+  const ageMin = (Date.now() - gen) / 60000;
+  const crit = s.health.filter(h => h.severity === "crit");
+  const warn = s.health.filter(h => h.severity !== "crit");
+  // 本番サイクル時刻を過ぎたのに、その時刻より前から更新が止まっている＝今日のサイクルが動いていない
+  const now = new Date();
+  const [mh, mm] = (s.schedule?.main || "16:30").split(":").map(Number);
+  const mainToday = new Date(now); mainToday.setHours(mh, mm, 0, 0);
+  const missedMain = ageMin > 20 && now > mainToday && gen < mainToday;
+  if (crit.length || (s.queue || []).length === 0)
+    return {cls:"b-err", big:"❌ 異常あり", small: crit[0]?.title || "予約公開がゼロ", ageMin};
+  if (missedMain)
+    return {cls:"b-err", big:"❌ PC が止まっています", small:`${ago(ageMin)}から応答なし。今日のサイクルが動いていない可能性`, ageMin};
+  if (ageMin > 20)
+    return {cls:"b-warn", big:"💤 PC スリープ中", small:`最終更新 ${ago(ageMin)}。次のサイクル時刻に自動で起きます`, ageMin};
+  if (warn.length)
+    return {cls:"b-warn", big:"⚠ 注意 " + warn.length + "件", small: warn[0].title, ageMin};
+  if (s.running)
+    return {cls:"b-ok", big:"⚙ サイクル実行中", small:`${hm(s.running.started)} 開始`, ageMin};
+  return {cls:"b-ok", big:"✅ 正常に稼働中", small:`最終更新 ${ago(ageMin)}`, ageMin};
+}
+
+function render(s){
+  const j = judge(s);
+  const yt = id => id ? `https://youtu.be/${id}` : null;
+  const link = (title, id) => id ? `<a href="${yt(id)}">${esc(title)}</a>` : esc(title);
+  let h = `<div class="banner ${j.cls}"><div class="big">${j.big}</div><div class="small">${esc(j.small)}</div></div>`;
+
+  h += `<div class="kpis">
+    <div class="kpi"><div class="v">${(s.queue||[]).length}</div><div class="l">予約済み</div></div>
+    <div class="kpi"><div class="v">${n(s.ready_unuploaded)}</div><div class="l">完成・未アップ</div></div>
+    <div class="kpi"><div class="v">${n(s.stock)}</div><div class="l">台本在庫</div></div></div>`;
+
+  if (s.health.length){
+    h += `<div class="card"><h2>要確認</h2>` + s.health.map(a =>
+      `<div class="alert"><span class="dot ${a.severity==="crit"?"d-err":"d-warn"}"></span>${esc(a.title)}
+       <div class="rem">${esc(a.detail)}</div>${a.remedy?`<div class="rem">→ ${esc(a.remedy)}</div>`:""}</div>`).join("") + `</div>`;
+  }
+
+  h += `<div class="card"><h2>今日の公開</h2>` + ((s.today||[]).length ? s.today.map(v =>
+      `<div class="row"><span class="t">${v.at.slice(11,16)}</span><span class="m">${link(v.title, v.video_id)}</span><span class="n">${v.views!=null?n(v.views)+"回":""}</span></div>`).join("")
+    : `<div class="muted">今日の公開予定はありません</div>`) + `</div>`;
+
+  const q = s.queue || [];
+  const last = q.length ? q[q.length-1].at : null;
+  h += `<div class="card"><h2>予約キュー${last?`（${hm(last)} まで）`:""}</h2>` + (q.length ? q.map(v =>
+      `<div class="row"><span class="t">${hm(v.at)}</span><span class="m">${esc(v.title)}</span></div>`).join("")
+    : `<div class="muted">予約がありません。公開が止まります</div>`) + `</div>`;
+
+  if (s.last_cycle){
+    const c = s.last_cycle;
+    h += `<div class="card"><h2>直近のサイクル</h2><div class="row"><span class="t">${hm(c.ts)}</span>
+      <span class="m">生成 ${c.made}・アップ ${c.uploaded}・QA不合格 ${c.qa_failed}</span></div></div>`;
+  }
+
+  const mk = s.marketing;
+  if (mk){
+    const pct = w => w == null ? "" : (w >= 1.05 ? "↑増やす" : w <= 0.95 ? "↓減らす" : "→維持");
+    h += `<div class="card"><h2>マーケ分析（直近21日・${hm(mk.generated_at)} 集計）</h2>
+      <div class="muted" style="margin-bottom:6px">全体中央値 1日後 ${n(mk.overall.d1)}回 / 3日後 ${n(mk.overall.d3)}回</div>` +
+      mk.types.map(t => `<div class="row"><span class="m">${esc(t.type)}（${t.n}本）</span>
+        <span class="t" style="min-width:0">1日後 ${n(t.d1)} / 3日後 ${n(t.d3)}</span>
+        <span class="n">${pct(t.weight)}</span></div>`).join("") +
+      (mk.fatigue||[]).map(f => `<div class="alert"><span class="dot d-warn"></span>飽き検知: ${esc(f.type)}（直近12本中${f.share}本・直近4本の1日後中央値 ${n(f.last4_d1_median)}）</div>`).join("") +
+      ((mk.banned_formulas||[]).length ? `<div class="alert"><span class="dot d-warn"></span>題名の型を一時禁止: ${esc(mk.banned_formulas.join("／"))}</div>` : "") +
+      (mk.quality ? `<div class="alert"><b>質</b>: 平均視聴率の中央値 ${mk.quality.avp!=null?Math.round(mk.quality.avp):"-"}%・期間の登録者純増 ${n(mk.quality.net_subs)}人</div>` : "") +
+      (mk.experiments||[]).map(x => `<div class="alert"><span class="dot ${x.decision?"d-ok":"d-warn"}"></span><b>実験</b>: ${esc(x.question)}<div class="rem">${Object.entries(x.arms||{}).map(([a,v]) => esc(a)+" "+v.n+"本（判定待ち"+v.pending+"）・報酬 "+(v.reward??"-")+"・72h再生 "+n(v.views72_median)).join(" ／ ")}${x.p!=null?" ・p="+x.p:""}<br>${x.decision?esc(x.decision):"判定まであと各"+x.need+"本"}</div></div>`).join("") +
+      ((mk.breakouts||[]).length ? `<div class="alert"><b>当たり→続編を執筆</b>: ${mk.breakouts.map(w => esc(w.title.slice(0,22)) + " " + n(w.latest)).join(" ／ ")}</div>` : "") +
+      `<div class="alert"><b>次の台本の配分</b>: ${esc(mk.allocation.map(a => a[0] + a[1]).join("・"))}</div>` +
+      `<div class="alert"><b>伸びた</b>: ${mk.winners.map(w => esc(w.title.slice(0,22)) + " " + n(w.latest)).join(" ／ ")}</div>` +
+      `<div class="alert"><b>伸びなかった</b>: ${mk.losers.map(w => esc(w.title.slice(0,22)) + " " + n(w.latest)).join(" ／ ")}</div>` +
+      (mk.market && mk.market.ok ? `<div class="alert"><b>市場</b>: 同ジャンルShorts ${mk.market.shorts_n}本・尺の中央値 ${mk.market.duration_median}秒（うち ${mk.market.own_duration_median}秒）${mk.market.thin?"・サンプル少":""}<div class="rem">${(mk.market.rising||[]).map(v => esc((v.title||"").slice(0,26)) + " " + n(v.views)).join(" ／ ")}</div></div>` : "") +
+      `</div>`;
+  }
+
+  h += `<div class="card"><h2>直近7日の再生数</h2>` + (s.recent_views||[]).map(v =>
+      `<div class="row"><span class="m">${link(v.title, v.video_id)}</span><span class="n">${n(v.views)}</span></div>`).join("") + `</div>`;
+
+  h += `<div class="card"><h2>ログ（72時間）</h2>` + (s.events||[]).map(e =>
+      `<div class="row"><span class="t">${hm(e.ts)}</span><span class="m"><span class="dot d-${e.level}"></span>${esc(e.msg)}</span></div>`).join("") + `</div>`;
+
+  h += `<div class="muted">データ作成 ${hm(s.generated_at)}（PC から5分毎に更新）・本番 ${esc(s.schedule?.main)} / 保険 ${esc(s.schedule?.retry)} / 公開 ${esc(s.schedule?.publish)}〜</div>`;
+  $("#app").innerHTML = h;
+}
+
+function renderSetup(){
+  $("#app").innerHTML = `<div class="card"><h2>初期設定</h2>
+    <div class="muted" style="margin-bottom:8px">PC 側で表示された ID を入力してください。</div>
+    <input id="gid" placeholder="Gist ID" autocomplete="off">
+    <button class="btn" id="save" type="button">保存</button></div>`;
+  $("#save").onclick = () => { const v = $("#gid").value.trim(); if (v){ location.hash = v; refresh(); } };
+}
+
+async function refresh(){
+  try{
+    const s = await load();
+    if (!s) return renderSetup();
+    render(s);
+  }catch(e){
+    $("#app").innerHTML = `<div class="banner b-warn"><div class="big">取得できません</div><div class="small">${esc(e.message)}（通信状況を確認して「更新」）</div></div>`;
+  }
+}
+$("#reload").onclick = refresh;
+document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(); });
+setInterval(() => { if (!document.hidden) refresh(); }, 120000);
+refresh();
+</script>
+</body>
+</html>
