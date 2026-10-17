@@ -68,7 +68,7 @@ table.wk{width:100%;border-collapse:collapse;font-size:12px;font-variant-numeric
 table.wk th,table.wk td{padding:5px 2px;text-align:right;border-top:1px solid var(--line)}
 table.wk th:first-child,table.wk td:first-child{text-align:left}
 table.wk th{color:var(--sub);font-weight:600}
-svg.ch{width:100%;height:auto;display:block}
+svg.ch{width:100%;height:auto;max-height:220px;display:block}
 .legend{font-size:11px;color:var(--sub)}
 input{width:100%;font:inherit;padding:10px;border-radius:10px;border:1px solid var(--line);
   background:var(--card);color:var(--fg)}
@@ -151,9 +151,9 @@ function chart(daily, goalPerDay){
   const subs = daily.map(d => d.subs), smax = Math.max(1, ...subs), H2 = 40;
   const g2 = subs.map((v, i) => { const hh = Math.max(0, v) / smax * (H2 - 2);
     return `<rect x="${x(i) - bw / 2}" y="${H2 - hh}" width="${bw}" height="${hh}" fill="var(--ok)"/>`; }).join("");
-  return `<svg class="ch" viewBox="0 0 ${W} ${H}">${g}</svg>
+  return `<svg class="ch" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${g}</svg>
     <div class="legend">灰=日別再生 ／ <span style="color:var(--info)">青=7日平均</span> ／ <span style="color:var(--err)">赤点線=目標ペース ${n(goalPerDay)}回/日</span>（${daily[0].day.slice(5)}〜${daily[daily.length-1].day.slice(5)}・Analytics は約3日遅れ）</div>
-    <svg class="ch" viewBox="0 0 ${W} ${H2}" style="margin-top:6px">${g2}</svg>
+    <svg class="ch" viewBox="0 0 ${W} ${H2}" preserveAspectRatio="none" style="margin-top:6px;max-height:70px">${g2}</svg>
     <div class="legend"><span style="color:var(--ok)">緑=日別の登録者純増</span>（最大 ${smax}人/日）</div>`;
 }
 
