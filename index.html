@@ -70,6 +70,9 @@ table.wk th:first-child,table.wk td:first-child{text-align:left}
 table.wk th{color:var(--sub);font-weight:600}
 svg.ch{width:100%;height:auto;max-height:220px;display:block}
 .legend{font-size:11px;color:var(--sub)}
+button.act{font:inherit;font-size:14px;padding:9px 12px;margin:6px 6px 0 0;border-radius:10px;border:0;
+  background:var(--info);color:#fff;font-weight:600}
+button.act.arm{background:var(--err)} button.act:disabled{opacity:.6}
 input{width:100%;font:inherit;padding:10px;border-radius:10px;border:1px solid var(--line);
   background:var(--card);color:var(--fg)}
 .btn{display:block;width:100%;margin-top:8px;font:inherit;padding:10px;border-radius:10px;
@@ -90,10 +93,71 @@ function getGistId(){
   try{ return localStorage.getItem("bb_gist") || ""; }catch(e){ return ""; }
 }
 
+function creds(){
+  const parts = getGistId().split(".");
+  return {gist: parts[0] || "", topic: parts[1] || "", key: parts[2] || ""};
+}
+
+async function hmacHex(key, msg){
+  const k = await crypto.subtle.importKey("raw", new TextEncoder().encode(key), {name: "HMAC", hash: "SHA-256"}, false, ["sign"]);
+  const sig = await crypto.subtle.sign("HMAC", k, new TextEncoder().encode(msg));
+  return [...new Uint8Array(sig)].map(b => b.toString(16).padStart(2, "0")).join("");
+}
+
+function pending(){ try{ return JSON.parse(localStorage.getItem("bb_pending") || "[]"); }catch(e){ return []; } }
+function setPending(a){ try{ localStorage.setItem("bb_pending", JSON.stringify(a.slice(-10))); }catch(e){} }
+
+let armed = null;
+async function cmdTap(btn, cmd, label){
+  const c = creds();
+  if (!c.key){ btn.textContent = "PCで remote-setup が必要"; return; }
+  if (armed !== btn){
+    if (armed) armed.textContent = armed.dataset.label;
+    armed = btn; btn.dataset.label = btn.textContent;
+    btn.textContent = "もう一度押すと実行"; btn.classList.add("arm");
+    setTimeout(() => { if (armed === btn){ armed = null; btn.textContent = btn.dataset.label; btn.classList.remove("arm"); } }, 5000);
+    return;
+  }
+  armed = null; btn.disabled = true; btn.textContent = "送信中…";
+  try{
+    const ts = String(Date.now());
+    const nonce = [...crypto.getRandomValues(new Uint8Array(12))].map(b => b.toString(16).padStart(2, "0")).join("");
+    const sig = await hmacHex(c.key, `${cmd}|${ts}|${nonce}`);
+    const r = await fetch(`https://ntfy.sh/${c.topic}`, {method: "POST", body: JSON.stringify({cmd, ts, nonce, sig})});
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    const j = await r.json();
+    setPending(pending().concat([{id: j.id, label, at: Date.now()}]));
+    btn.textContent = "送信済み（PCが5分以内に実行）";
+    if (window._s) setTimeout(() => render(window._s), 1500);
+  }catch(e){
+    btn.disabled = false; btn.textContent = "送信失敗: " + e.message;
+  }
+}
+
+function cmdButtons(ids, s){
+  const cmds = (s.remote && s.remote.commands) || [];
+  return ids.map(id => { const c = cmds.find(x => x.id === id); if (!c) return "";
+    return `<button class="act" onclick="cmdTap(this,'${c.id}','${esc(c.label)}')">▶ ${esc(c.label)}</button>`; }).join("");
+}
+
+function renderRemote(s){
+  const r = s.remote;
+  if (!r) return `<div class="card"><h2>スマホから操作</h2><div class="muted">PC で <code>python main.py remote-setup</code> を実行し、表示された URL をこのスマホで開くと使えます</div></div>`;
+  const done = new Set((r.history || []).map(h => h.id));
+  const wait = pending().filter(p => !done.has(p.id) && Date.now() - p.at < 30 * 60 * 1000);
+  setPending(wait);
+  let h = `<div class="card"><h2>スマホから操作（2回押しで実行・PCが5分以内に受け取る）</h2>` +
+    `<div class="muted" style="margin-bottom:6px">自動運転: ${r.enabled ? "稼働中" : "停止中"}</div>` +
+    r.commands.map(c => `<div class="li"><button class="act" onclick="cmdTap(this,'${c.id}','${esc(c.label)}')">▶ ${esc(c.label)}</button><div class="rem muted">${esc(c.desc)}</div></div>`).join("");
+  if (wait.length) h += wait.map(p => `<div class="li">⏳ ${esc(p.label)}: PC の受け取り待ち（${Math.round((Date.now() - p.at) / 60000)}分前に送信）</div>`).join("");
+  h += (r.history || []).map(x => `<div class="li"><span class="dot ${x.status === "rejected" || x.status === "failed" ? "d-err" : x.status === "skipped" ? "d-warn" : "d-ok"}"></span>${hm(x.ts)} ${esc(x.label || "命令")}: ${esc(x.detail)}</div>`).join("");
+  return h + `</div>`;
+}
+
 async function load(){
   const params = new URLSearchParams(location.search);
   if (params.has("demo")) return (await fetch("sample.json", {cache:"no-store"})).json();
-  const id = getGistId();
+  const id = creds().gist;
   if (!id) return null;
   const r = await fetch(`https://api.github.com/gists/${id}`, {cache:"no-store"});
   if (!r.ok) throw new Error(`GitHub 応答 ${r.status}`);
@@ -178,7 +242,7 @@ function renderReport(s){
     (r.bad || []).map(x => `<div class="li bad">× <span style="color:var(--fg)">${esc(x)}</span></div>`).join("") + `</div>`;
   h += `<div class="card"><h2>課題と打ち手（重い順）</h2>` + (r.issues || []).map(i =>
     `<div class="li"><span class="chip ${i.owner === "自動" ? "c-auto" : "c-you"}">${i.owner === "自動" ? "自動で対処" : "あなたの判断"}</span><b>${esc(i.title)}</b>
-      <div class="rem muted">${esc(i.evidence)}</div><div class="rem">→ ${esc(i.action)}${i.status ? `<span class="muted">（${esc(i.status)}）</span>` : ""}</div></div>`).join("") + `</div>`;
+      <div class="rem muted">${esc(i.evidence)}</div><div class="rem">→ ${esc(i.action)}${i.status ? `<span class="muted">（${esc(i.status)}）</span>` : ""}</div>${(i.actions || []).length ? cmdButtons(i.actions, s) : ""}</div>`).join("") + `</div>`;
   h += `<div class="card"><h2>競合の動き</h2>` + (r.competitors || []).map(x => `<div class="li">${esc(x)}</div>`).join("") +
     ((r.market && (r.market.rising || []).length) ? `<div class="li"><b>今伸びている動画</b>` + r.market.rising.map(v =>
       `<div class="rem">↑ ${esc((v.title || "").slice(0, 34))}（${n(v.views)}回・${v.sec}秒${v.channel ? "・" + esc(v.channel) : ""}）</div>`).join("") + `</div>` : "") + `</div>`;
@@ -199,6 +263,7 @@ function render(s){
     `<button class="${tab === k ? "on" : ""}" onclick="setTab('${k}')">${l}</button>`).join("") + `</div>`;
   if (tab === "report") return finish(h + renderReport(s), s);
   if (tab === "detail") return finish(h + renderDetail(s, link), s);
+  h += renderRemote(s);
 
   h += `<div class="kpis">
     <div class="kpi"><div class="v">${(s.queue||[]).length}</div><div class="l">予約済み</div></div>
