@@ -253,6 +253,14 @@ function renderReport(s){
       `<div class="rem">↑ ${esc((v.title || "").slice(0, 34))}（${n(v.views)}回・${v.sec}秒${v.channel ? "・" + esc(v.channel) : ""}）</div>`).join("") + `</div>` : "") + `</div>`;
   h += `<div class="card"><h2>${r.scorecard_date.slice(5).replace("-", "/")} の続行判断基準</h2>` + r.scorecard.map(c =>
     `<div class="row"><span class="m">${c.ok ? "✅" : "❌"} ${esc(c.item)}</span><span class="n">${esc(c.actual)}<span class="muted">（${esc(c.target)}）</span></span></div>`).join("") + `</div>`;
+  const cd = r.channel_decision;
+  if (cd) h += `<div class="card"><h2>新チャンネルで出し直すか（11/4 判断）</h2>` +
+    `<div class="li"><b>判定: ${esc(cd.verdict)}</b></div>` +
+    `<div class="row"><span class="m">配信の戻り（同じ出来なら8月の何倍か・直近14日）</span><span class="n">${cd.recovery ?? "-"}倍<span class="muted">（9月 ${cd.sept ?? "-"}倍）</span></span></div>` +
+    `<div class="row"><span class="m">再生ペース</span><span class="n">${n(cd.views_per_day)}回/日</span></div>` +
+    `<div class="li muted">週別: ${(cd.weeks || []).map(w => w.week.slice(5).replace("-", "/") + " " + w.ratio).join("／")}</div>` +
+    (cd.rule || []).map(x => `<div class="li">基準: ${esc(x)}</div>`).join("") +
+    (cd.facts || []).map(x => `<div class="li muted">根拠: ${esc(x)}</div>`).join("") + `</div>`;
   h += `<div class="card"><h2>次にやること（自動）</h2>` + (r.next_actions || []).map(x => `<div class="li">${esc(x)}</div>`).join("") + `</div>`;
   return h;
 }
