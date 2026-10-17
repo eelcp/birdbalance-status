@@ -89,8 +89,13 @@ const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;
 
 function getGistId(){
   const h = location.hash.replace(/^#/, "").trim();
-  if (h) { try{ localStorage.setItem("bb_gist", h); }catch(e){} return h; }
-  try{ return localStorage.getItem("bb_gist") || ""; }catch(e){ return ""; }
+  let saved = "";
+  try{ saved = localStorage.getItem("bb_gist") || ""; }catch(e){}
+  if (!h) return saved;
+  // 鍵なしの旧URL（ホーム画面のアイコン等）で開いても、記憶済みの鍵を消さない
+  if (h.split(".").length < 3 && saved.split(".")[0] === h.split(".")[0] && saved.split(".").length >= 3) return saved;
+  try{ localStorage.setItem("bb_gist", h); }catch(e){}
+  return h;
 }
 
 function creds(){
