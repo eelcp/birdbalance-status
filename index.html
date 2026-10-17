@@ -132,7 +132,7 @@ async function cmdTap(btn, cmd, label){
     if (!r.ok) throw new Error("HTTP " + r.status);
     const j = await r.json();
     setPending(pending().concat([{id: j.id, label, at: Date.now()}]));
-    btn.textContent = "送信済み（PCが5分以内に実行）";
+    btn.textContent = "送信済み（PCが数秒で実行）";
     if (window._s) setTimeout(() => render(window._s), 1500);
   }catch(e){
     btn.disabled = false; btn.textContent = "送信失敗: " + e.message;
@@ -151,10 +151,10 @@ function renderRemote(s){
   const done = new Set((r.history || []).map(h => h.id));
   const wait = pending().filter(p => !done.has(p.id) && Date.now() - p.at < 30 * 60 * 1000);
   setPending(wait);
-  let h = `<div class="card"><h2>スマホから操作（2回押しで実行・PCが5分以内に受け取る）</h2>` +
+  let h = `<div class="card"><h2>スマホから操作（2回押しで実行・PCが数秒で受け取る）</h2>` +
     `<div class="muted" style="margin-bottom:6px">自動運転: ${r.enabled ? "稼働中" : "停止中"}</div>` +
     r.commands.map(c => `<div class="li"><button class="act" onclick="cmdTap(this,'${c.id}','${esc(c.label)}')">▶ ${esc(c.label)}</button><div class="rem muted">${esc(c.desc)}</div></div>`).join("");
-  if (wait.length) h += wait.map(p => `<div class="li">⏳ ${esc(p.label)}: PC の受け取り待ち（${Math.round((Date.now() - p.at) / 60000)}分前に送信）</div>`).join("");
+  if (wait.length) h += wait.map(p => `<div class="li">⏳ ${esc(p.label)}: PC の受け取り待ち（PCがスリープ中なら起動後に実行・${Math.round((Date.now() - p.at) / 60000)}分前に送信）</div>`).join("");
   h += (r.history || []).map(x => `<div class="li"><span class="dot ${x.status === "rejected" || x.status === "failed" ? "d-err" : x.status === "skipped" ? "d-warn" : "d-ok"}"></span>${hm(x.ts)} ${esc(x.label || "命令")}: ${esc(x.detail)}</div>`).join("");
   return h + `</div>`;
 }
@@ -358,6 +358,8 @@ async function refresh(){
 $("#reload").onclick = refresh;
 document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(); });
 setInterval(() => { if (!document.hidden) refresh(); }, 120000);
+// 命令の結果待ちの間は10秒毎に取り直す（PC は数秒で実行して画面データを更新する）
+setInterval(() => { if (!document.hidden && pending().length) refresh(); }, 10000);
 refresh();
 </script>
 </body>
