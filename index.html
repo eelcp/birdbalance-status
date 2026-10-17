@@ -52,6 +52,24 @@ a{color:inherit}
 .alert{padding:8px 0;border-top:1px solid var(--line)} .alert:first-of-type{border-top:0}
 .alert .rem{font-size:12px;color:var(--sub);margin-top:2px}
 .muted{color:var(--sub);font-size:13px}
+.tabs{display:flex;gap:6px;margin:0 0 12px}
+.tabs button{flex:1;font:inherit;font-size:14px;padding:8px 0;border-radius:10px;border:1px solid var(--line);
+  background:var(--card);color:var(--sub)}
+.tabs button.on{background:var(--info);color:#fff;border-color:var(--info);font-weight:600}
+.lead p{margin:0 0 8px;line-height:1.55} .lead p:last-child{margin:0}
+.bar{height:8px;border-radius:4px;background:var(--line);overflow:hidden;margin:4px 0 2px}
+.bar i{display:block;height:100%;background:var(--info)}
+.goal{margin-bottom:10px} .goal .gl{display:flex;justify-content:space-between;font-size:13px}
+.chip{display:inline-block;font-size:11px;padding:1px 7px;border-radius:9px;margin-right:6px;vertical-align:1px}
+.c-auto{background:var(--ok-bg);color:var(--ok)} .c-you{background:var(--err-bg);color:var(--err)}
+.li{padding:8px 0;border-top:1px solid var(--line);line-height:1.5} .li:first-of-type{border-top:0}
+.good{color:var(--ok)} .bad{color:var(--err)}
+table.wk{width:100%;border-collapse:collapse;font-size:12px;font-variant-numeric:tabular-nums}
+table.wk th,table.wk td{padding:5px 2px;text-align:right;border-top:1px solid var(--line)}
+table.wk th:first-child,table.wk td:first-child{text-align:left}
+table.wk th{color:var(--sub);font-weight:600}
+svg.ch{width:100%;height:auto;display:block}
+.legend{font-size:11px;color:var(--sub)}
 input{width:100%;font:inherit;padding:10px;border-radius:10px;border:1px solid var(--line);
   background:var(--card);color:var(--fg)}
 .btn{display:block;width:100%;margin-top:8px;font:inherit;padding:10px;border-radius:10px;
@@ -117,11 +135,70 @@ function judge(s){
   return {cls:"b-ok", big:"✅ 正常に稼働中", small:`最終更新 ${ago(ageMin)}`, ageMin};
 }
 
+function getTab(){ try{ return localStorage.getItem("bb_tab") || "report"; }catch(e){ return "report"; } }
+function setTab(t){ try{ localStorage.setItem("bb_tab", t); }catch(e){} if (window._s) render(window._s); }
+
+function chart(daily, goalPerDay){
+  if (!daily || daily.length < 3) return "";
+  const W = 340, H = 130, P = 4, vals = daily.map(d => d.views);
+  const ma = vals.map((_, i) => { const a = vals.slice(Math.max(0, i - 6), i + 1); return a.reduce((x, y) => x + y, 0) / a.length; });
+  const max = Math.max(goalPerDay || 0, ...vals) * 1.05;
+  const x = i => P + i * (W - 2 * P) / (vals.length - 1), y = v => H - P - v / max * (H - 2 * P);
+  const bw = Math.max(1, (W - 2 * P) / vals.length - 1);
+  let g = vals.map((v, i) => `<rect x="${x(i) - bw / 2}" y="${y(v)}" width="${bw}" height="${H - P - y(v)}" fill="var(--line)"/>`).join("");
+  g += `<polyline fill="none" stroke="var(--info)" stroke-width="2" points="${ma.map((v, i) => x(i) + "," + y(v)).join(" ")}"/>`;
+  if (goalPerDay) g += `<line x1="${P}" x2="${W - P}" y1="${y(goalPerDay)}" y2="${y(goalPerDay)}" stroke="var(--err)" stroke-dasharray="4 3"/>`;
+  const subs = daily.map(d => d.subs), smax = Math.max(1, ...subs), H2 = 40;
+  const g2 = subs.map((v, i) => { const hh = Math.max(0, v) / smax * (H2 - 2);
+    return `<rect x="${x(i) - bw / 2}" y="${H2 - hh}" width="${bw}" height="${hh}" fill="var(--ok)"/>`; }).join("");
+  return `<svg class="ch" viewBox="0 0 ${W} ${H}">${g}</svg>
+    <div class="legend">灰=日別再生 ／ <span style="color:var(--info)">青=7日平均</span> ／ <span style="color:var(--err)">赤点線=目標ペース ${n(goalPerDay)}回/日</span>（${daily[0].day.slice(5)}〜${daily[daily.length-1].day.slice(5)}・Analytics は約3日遅れ）</div>
+    <svg class="ch" viewBox="0 0 ${W} ${H2}" style="margin-top:6px">${g2}</svg>
+    <div class="legend"><span style="color:var(--ok)">緑=日別の登録者純増</span>（最大 ${smax}人/日）</div>`;
+}
+
+function renderReport(s){
+  const r = s.report;
+  if (!r) return `<div class="card"><div class="muted">レポートは次のサイクルで作成されます</div></div>`;
+  const g = r.goal || {};
+  const pv = g.views90 && g.views90_goal ? Math.min(100, g.views90 / g.views90_goal * 100) : 0;
+  const ps = g.subs && g.subs_goal ? Math.min(100, g.subs / g.subs_goal * 100) : 0;
+  let h = `<div class="card lead"><h2>結論（${hm(r.generated_at)} 自動作成）</h2>${r.headline.map(x => `<p>${esc(x)}</p>`).join("")}</div>`;
+  h += `<div class="card"><h2>目標までの距離</h2>
+    <div class="goal"><div class="gl"><span>登録者</span><b>${n(g.subs)} / ${n(g.subs_goal)}人</b></div><div class="bar"><i style="width:${ps}%"></i></div>
+      <div class="legend">${g.subs_per_day ?? "-"}人/日${g.eta_subs ? "・このペースで到達 " + g.eta_subs : ""}</div></div>
+    <div class="goal"><div class="gl"><span>90日の再生</span><b>${n(g.views90)} / ${n(g.views90_goal)}回</b></div><div class="bar"><i style="width:${pv}%"></i></div>
+      <div class="legend">直近14日 ${n(g.views_per_day)}回/日（必要 ${n(g.views_per_day_needed)}回/日）</div></div></div>`;
+  h += `<div class="card"><h2>数字の推移</h2>${chart(r.daily, g.views_per_day_needed)}
+    <table class="wk" style="margin-top:10px"><tr><th>週</th><th>公開</th><th>再生/日</th><th>登録</th><th>視聴率</th><th>新作3日後</th></tr>` +
+    r.weekly.map(w => `<tr><td>${w.week.slice(5).replace("-", "/")}${w.partial ? "*" : ""}</td><td>${w.uploads}</td><td>${n(w.views_per_day)}</td><td>${w.subs}</td><td>${w.avp ?? "-"}</td><td>${n(w.d3_median)}</td></tr>`).join("") +
+    `</table><div class="legend">*=集計途中の週。視聴率=平均視聴率%（KPI 90%）</div></div>`;
+  h += `<div class="card"><h2>良い点・ダメな点（直近7日 vs 前週）</h2>` +
+    (r.good || []).map(x => `<div class="li good">○ <span style="color:var(--fg)">${esc(x)}</span></div>`).join("") +
+    (r.bad || []).map(x => `<div class="li bad">× <span style="color:var(--fg)">${esc(x)}</span></div>`).join("") + `</div>`;
+  h += `<div class="card"><h2>課題と打ち手（重い順）</h2>` + (r.issues || []).map(i =>
+    `<div class="li"><span class="chip ${i.owner === "自動" ? "c-auto" : "c-you"}">${i.owner === "自動" ? "自動で対処" : "あなたの判断"}</span><b>${esc(i.title)}</b>
+      <div class="rem muted">${esc(i.evidence)}</div><div class="rem">→ ${esc(i.action)}${i.status ? `<span class="muted">（${esc(i.status)}）</span>` : ""}</div></div>`).join("") + `</div>`;
+  h += `<div class="card"><h2>競合の動き</h2>` + (r.competitors || []).map(x => `<div class="li">${esc(x)}</div>`).join("") +
+    ((r.market && (r.market.rising || []).length) ? `<div class="li"><b>今伸びている動画</b>` + r.market.rising.map(v =>
+      `<div class="rem">↑ ${esc((v.title || "").slice(0, 34))}（${n(v.views)}回・${v.sec}秒${v.channel ? "・" + esc(v.channel) : ""}）</div>`).join("") + `</div>` : "") + `</div>`;
+  h += `<div class="card"><h2>${r.scorecard_date.slice(5).replace("-", "/")} の続行判断基準</h2>` + r.scorecard.map(c =>
+    `<div class="row"><span class="m">${c.ok ? "✅" : "❌"} ${esc(c.item)}</span><span class="n">${esc(c.actual)}<span class="muted">（${esc(c.target)}）</span></span></div>`).join("") + `</div>`;
+  h += `<div class="card"><h2>次にやること（自動）</h2>` + (r.next_actions || []).map(x => `<div class="li">${esc(x)}</div>`).join("") + `</div>`;
+  return h;
+}
+
 function render(s){
+  window._s = s;
   const j = judge(s);
+  const tab = getTab();
   const yt = id => id ? `https://youtu.be/${id}` : null;
   const link = (title, id) => id ? `<a href="${yt(id)}">${esc(title)}</a>` : esc(title);
   let h = `<div class="banner ${j.cls}"><div class="big">${j.big}</div><div class="small">${esc(j.small)}</div></div>`;
+  h += `<div class="tabs">` + [["report", "レポート"], ["ops", "運転"], ["detail", "詳細"]].map(([k, l]) =>
+    `<button class="${tab === k ? "on" : ""}" onclick="setTab('${k}')">${l}</button>`).join("") + `</div>`;
+  if (tab === "report") return finish(h + renderReport(s), s);
+  if (tab === "detail") return finish(h + renderDetail(s, link), s);
 
   h += `<div class="kpis">
     <div class="kpi"><div class="v">${(s.queue||[]).length}</div><div class="l">予約済み</div></div>
@@ -150,6 +227,11 @@ function render(s){
       <span class="m">生成 ${c.made}・アップ ${c.uploaded}・QA不合格 ${c.qa_failed}</span></div></div>`;
   }
 
+  return finish(h + renderLog(s), s);
+}
+
+function renderDetail(s, link){
+  let h = "";
   const mk = s.marketing;
   if (mk){
     const pct = w => w == null ? "" : (w >= 1.05 ? "↑増やす" : w <= 0.95 ? "↓減らす" : "→維持");
@@ -173,9 +255,15 @@ function render(s){
   h += `<div class="card"><h2>直近7日の再生数</h2>` + (s.recent_views||[]).map(v =>
       `<div class="row"><span class="m">${link(v.title, v.video_id)}</span><span class="n">${n(v.views)}</span></div>`).join("") + `</div>`;
 
-  h += `<div class="card"><h2>ログ（72時間）</h2>` + (s.events||[]).map(e =>
-      `<div class="row"><span class="t">${hm(e.ts)}</span><span class="m"><span class="dot d-${e.level}"></span>${esc(e.msg)}</span></div>`).join("") + `</div>`;
+  return h;
+}
 
+function renderLog(s){
+  return `<div class="card"><h2>ログ（72時間）</h2>` + (s.events||[]).map(e =>
+      `<div class="row"><span class="t">${hm(e.ts)}</span><span class="m"><span class="dot d-${e.level}"></span>${esc(e.msg)}</span></div>`).join("") + `</div>`;
+}
+
+function finish(h, s){
   h += `<div class="muted">データ作成 ${hm(s.generated_at)}（PC から5分毎に更新）・本番 ${esc(s.schedule?.main)} / 保険 ${esc(s.schedule?.retry)} / 公開 ${esc(s.schedule?.publish)}〜</div>`;
   $("#app").innerHTML = h;
 }
